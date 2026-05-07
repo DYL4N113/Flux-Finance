@@ -493,14 +493,30 @@ export default function App() {
         .from('profiles')
         .upsert({ id: user.id, avatar_url: publicUrl });
 
-      if (dbError && dbError.code !== '42P01') throw dbError;
+      if (dbError) throw dbError;
 
       setUser(updateData.user);
       setProfile(prev => prev ? { ...prev, avatar_url: publicUrl } : null);
       showToast('Foto profil berhasil diperbarui!', 'success');
     } catch (e: any) {
       console.error('Error uploading avatar:', e);
-      // ... storage error handling remains the same
+      
+      if (e.message?.includes('profiles') && (e.message?.includes('not found') || e.code === '42P01')) {
+        showModal({
+          title: 'Tabel Tidak Ditemukan',
+          message: 'Tabel "profiles" belum ada di database Anda. Silakan buat tabelnya agar profil tersimpan permanen.',
+          confirmLabel: 'Salin SQL',
+          type: 'confirm',
+          onConfirm: () => {
+            const sql = `CREATE TABLE profiles (\n  id uuid references auth.users not null primary key,\n  full_name text,\n  avatar_url text,\n  updated_at timestamp with time zone default timezone('utc'::text, now()) not null\n);\n\nALTER TABLE profiles ENABLE ROW LEVEL SECURITY;\n\nCREATE POLICY "Public profiles are viewable by everyone." ON profiles FOR SELECT USING (true);\nCREATE POLICY "Users can insert their own profile." ON profiles FOR INSERT WITH CHECK (auth.uid() = id);\nCREATE POLICY "Users can update own profile." ON profiles FOR UPDATE USING (auth.uid() = id);`;
+            navigator.clipboard.writeText(sql);
+            showToast('SQL disalin!', 'info');
+            closeModal();
+          }
+        });
+        return;
+      }
+
       if (e.message?.includes('row-level security policy') || e.code === '42501') {
         showModal({
           title: 'Izin Ditolak',
