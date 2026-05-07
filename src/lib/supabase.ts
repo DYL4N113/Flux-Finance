@@ -20,10 +20,11 @@ export const signInWithGoogle = async () => {
   }
   
   try {
-    const { error } = await supabase.auth.signInWithOAuth({
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
         redirectTo: window.location.origin,
+        skipBrowserRedirect: true,
         queryParams: {
           prompt: 'select_account',
           access_type: 'offline',
@@ -32,6 +33,7 @@ export const signInWithGoogle = async () => {
     });
     
     if (error) throw error;
+    return data?.url;
   } catch (err: any) {
     console.error('Supabase Auth Error:', err);
     throw err;

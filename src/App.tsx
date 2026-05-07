@@ -445,8 +445,15 @@ export default function App() {
         } else throw dbError;
       }
 
-      setUser(data.user);
-      setProfile(prev => prev ? { ...prev, full_name: newName.trim() } : null);
+      if (data.user) setUser(data.user);
+      setProfile(prev => {
+        const updated = {
+          id: user.id,
+          full_name: newName.trim(),
+          avatar_url: prev?.avatar_url || user.user_metadata?.avatar_url || null
+        };
+        return updated;
+      });
       setIsEditingName(false);
       showToast('Nama berhasil diperbarui!', 'success');
     } catch (e: any) {
@@ -493,15 +500,29 @@ export default function App() {
         .from('profiles')
         .upsert({ id: user.id, avatar_url: publicUrl });
 
-      if (dbError) throw dbError;
+      if (dbError) {
+        if (dbError.code === '42P01') {
+          // Keep internal state even if table missing
+        } else {
+          throw dbError;
+        }
+      }
 
-      setUser(updateData.user);
-      setProfile(prev => prev ? { ...prev, avatar_url: publicUrl } : null);
+      if (updateData.user) setUser(updateData.user);
+      setProfile(prev => {
+        const updated = {
+          id: user.id,
+          full_name: prev?.full_name || user.user_metadata?.full_name || 'User Flux',
+          avatar_url: publicUrl
+        };
+        return updated;
+      });
       showToast('Foto profil berhasil diperbarui!', 'success');
     } catch (e: any) {
       console.error('Error uploading avatar:', e);
       
-      if (e.message?.includes('profiles') && (e.message?.includes('not found') || e.code === '42P01')) {
+      const errorMessage = e.message?.toLowerCase() || '';
+      if (errorMessage.includes('profiles') && (errorMessage.includes('not found') || e.code === '42P01')) {
         showModal({
           title: 'Tabel Tidak Ditemukan',
           message: 'Tabel "profiles" belum ada di database Anda. Silakan buat tabelnya agar profil tersimpan permanen.',
@@ -558,7 +579,7 @@ export default function App() {
 
           if (error) throw error;
           await fetchTransactions();
-          setActiveTab('home');
+          setActiveTab('account');
           showToast('Semua data berhasil dihapus.', 'success');
         } catch (e) {
           console.error('Error deleting data:', e);
@@ -583,7 +604,38 @@ export default function App() {
 
   const handleLogin = async () => {
     try {
-      await signInWithGoogle();
+      const url = await signInWithGoogle();
+      if (url) {
+        // Gunakan popup agar tidak terjadi redirect full page yang memicu error 403 bridge
+        const width = 500;
+        const height = 600;
+        const left = window.screenX + (window.outerWidth - width) / 2;
+        const top = window.screenY + (window.outerHeight - height) / 2;
+        
+        const popup = window.open(
+          url,
+          'google-login',
+          `width=${width},height=${height},left=${left},top=${top}`
+        );
+
+        if (popup) {
+          // Polling untuk mendeteksi session baru setelah popup ditutup
+          const checkPopup = setInterval(async () => {
+            if (popup.closed) {
+              clearInterval(checkPopup);
+              if (supabase) {
+                const { data: { session } } = await supabase.auth.getSession();
+                if (session) {
+                  setUser(session.user);
+                  fetchProfile(session.user.id);
+                  setActiveTab('account');
+                  showToast('Selamat datang!', 'success');
+                }
+              }
+            }
+          }, 1000);
+        }
+      }
     } catch (e: any) {
       showToast('Gagal terhubung ke Google: ' + (e.message || 'Error tidak diketahui'), 'error');
     }
